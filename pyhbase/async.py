@@ -19,15 +19,24 @@ except ImportError:
 
 try:
   from tornado import httpclient
+  from tornado.stack_context import ExceptionStackContext
 except ImportError:
   # async operations not supported unless Tornado is installed
   httpclient = None
+  ExceptionStackContext = None
 
 
 class TornadoRequestor(ipc.Requestor): 
     # TODO: Avro 1.4+: extend `ipc.BaseRequestor` instead of `ipc.Requestor`
 
     def request(self, message_name, request_datum, callback):
+        exception_handler = partial(self._handle_exception, message_name,
+                                    request_datum, callback)
+
+        with ExceptionStackContext(exception_handler):
+            return self._request(message_name, request_datum, callback)
+
+    def _request(self, message_name, request_datum, callback):
         buffer_writer = StringIO()
         buffer_encoder = io.BinaryEncoder(buffer_writer)
         self.write_handshake_request(buffer_encoder)
@@ -54,6 +63,15 @@ class TornadoRequestor(ipc.Requestor):
             self.request(message_name, request_datum, callback)
 
         callback(response)
+
+    def _handle_exception(self, message_name, request_datum, callback, type,
+                          value, traceback):
+        """exception handler, called in the event of any uncaught exception"""
+        logging.warning(
+            "caught exception performing avro '{request}' with arguments: "
+            "{args!r}".format(request=message_name, args=request_datum))
+        callback(None) # treat all failed requests as having null responses
+        return True # do not propogate exception to other exception handlers
 
 
 class TornadoHTTPTransceiver(object):
