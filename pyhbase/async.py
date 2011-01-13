@@ -19,21 +19,22 @@ except ImportError:
 
 try:
   from tornado import httpclient
-  from tornado.stack_context import ExceptionStackContext
+  from tornado import stack_context
 except ImportError:
   # async operations not supported unless Tornado is installed
   httpclient = None
-  ExceptionStackContext = None
+  stack_context = None
 
 
 class TornadoRequestor(ipc.Requestor): 
     # TODO: Avro 1.4+: extend `ipc.BaseRequestor` instead of `ipc.Requestor`
 
     def request(self, message_name, request_datum, callback):
+        callback = stack_context.wrap(callback)
         exception_handler = partial(self._handle_exception, message_name,
                                     request_datum, callback)
 
-        with ExceptionStackContext(exception_handler):
+        with stack_context.ExceptionStackContext(exception_handler):
             return self._request(message_name, request_datum, callback)
 
     def _request(self, message_name, request_datum, callback):
